@@ -4,6 +4,6 @@ venv
 env
 
 .env
-.vscode
 
 config.py
+cache.sqlite3

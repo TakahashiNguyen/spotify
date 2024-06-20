@@ -1,11 +1,81 @@
+from datetime import datetime
 import requests
 from base64 import b64encode
-from flask import Flask, Response, render_template, request, url_for
+from flask import Flask, Response, jsonify, render_template, request, redirect, session
 from random import randint
 from os import getenv
 from dotenv import find_dotenv, load_dotenv
+import urllib.parse
+from sqlitedict import SqliteDict
 
 load_dotenv(find_dotenv())
+
+AUTH_URL = "https://accounts.spotify.com/authorize"
+TOKEN_URL = "https://accounts.spotify.com/api/token"
+API_BASE_URL = "https://api.spotify.com/v1/"
+CLIENT_ID = getenv("CLIENT_ID")
+CLIENT_SECRET = getenv("CLIENT_SECRET")
+REDIRECT_URI = getenv("REDIRECT_URI")
+
+
+class User:
+    def __init__(self, info) -> None:
+        self.fromInfo(info)
+
+    def fromInfo(self, info):
+        if "error" in info:
+            raise ("invalid input")
+
+        self.acsTk = info["access_token"]
+        self.rfsTk = info["refresh_token"]
+        self.expat = datetime.now().timestamp() + info["expires_in"]
+
+        self.id = requests.get(
+            f"https://api.spotify.com/v1/me",
+            headers={"Authorization": f"Bearer {self.acsTk}"},
+        ).json()["id"]
+
+
+class UserTable:
+    def __init__(self) -> None:
+        self.users = []
+
+    def append(self, input: User):
+        try:
+            self.users.append(input)
+        except:
+            pass
+
+    def find(self, id) -> User | int:
+        for e in self.users:
+            if e.id == id:
+                return e
+        return -1
+
+
+def save(key, value, cache_file="cache.sqlite3"):
+    try:
+        with SqliteDict(cache_file) as mydict:
+            mydict[key] = value  # Using dict[key] to store
+            mydict.commit()  # Need to commit() to actually flush the data
+    except Exception as ex:
+        print("Error during storing data (Possibly unsupported):", ex)
+
+
+def load(key, cache_file="cache.sqlite3"):
+    try:
+        with SqliteDict(cache_file) as mydict:
+            value = mydict[
+                key
+            ]  # No need to use commit(), since we are only loading data!
+        return value
+    except Exception as ex:
+        print("Error during loading data:", ex)
+
+
+userTable: UserTable = load("spotifyuser")
+if not userTable:
+    userTable = UserTable()
 
 # Define base-64 encoded images
 with open("base64/placeholder_scan_code.txt") as f:
@@ -16,15 +86,16 @@ with open("base64/spotify_logo.txt") as f:
     B64_SPOTIFY_LOGO = f.read()
 
 
-def get_token():
+def get_token(id):
     """Get a new access token"""
+    user: User = userTable.find(id)
     r = requests.post(
-        "https://accounts.spotify.com/api/token",
+        TOKEN_URL,
         data={
             "grant_type": "refresh_token",
-            "refresh_token": getenv("REFRESH_TOKEN"),
-            "client_id": getenv("CLIENT_ID"),
-            "client_secret": getenv("CLIENT_SECRET"),
+            "refresh_token": user.rfsTk,
+            "client_id": CLIENT_ID,
+            "client_secret": CLIENT_SECRET,
         },
     )
     try:
@@ -33,11 +104,11 @@ def get_token():
         raise Exception(r.json())
 
 
-def spotify_request(endpoint):
+def spotify_request(endpoint, id):
     """Make a request to the specified endpoint"""
     r = requests.get(
         f"https://api.spotify.com/v1/{endpoint}",
-        headers={"Authorization": f"Bearer {get_token()}"},
+        headers={"Authorization": f"Bearer {get_token(id)}"},
     )
     return {} if r.status_code == 204 else r.json()
 
@@ -92,14 +163,15 @@ def get_scan_code(spotify_uri):
     )
 
 
-def make_svg(spin, scan, theme, rainbow):
+def make_svg(spin, scan, theme, rainbow, id):
     """Render the HTML template with variables"""
-    data = spotify_request("me/player/currently-playing")
+    data = spotify_request("me/player/currently-playing", id)
     if data:
         item = data["item"]
     else:
-        item = spotify_request(
-            "me/player/recently-played?limit=1")["items"][0]["track"]
+        item = spotify_request("me/player/recently-played?limit=1", id)["items"][0][
+            "track"
+        ]
 
     artists = " & ".join([artist["name"] for artist in item["artists"]])
     # for artist in item["artists"]:
@@ -121,8 +193,8 @@ def make_svg(spin, scan, theme, rainbow):
         "index.html",
         **{
             "bars": generate_bars(bar_count, rainbow),
-            "artist": artists, #.replace("&", "&amp;"),
-            "song": item["name"], #.replace("&", "&amp;"),
+            "artist": artists,  # .replace("&", "&amp;"),
+            "song": item["name"],  # .replace("&", "&amp;"),
             "image": image,
             "scan_code": scan_code if scan_code != "" else B64_PLACEHOLDER_SCAN_CODE,
             "theme": theme,
@@ -133,23 +205,89 @@ def make_svg(spin, scan, theme, rainbow):
 
 
 app = Flask(__name__)
+app.secret_key = "dsapofhipahufoeqigufpqbifoboh3974y98723y"
 
 
 @app.route("/", defaults={"path": ""})
 @app.route("/api", defaults={"path": ""})
 @app.route("/<path:path>")
 def catch_all(path):
+    if request.args.get("id") == "":
+        return redirect("/login")
+
+    user: User = userTable.find(request.args.get("id"))
+    if user == -1:
+        return redirect("/login")
+    elif datetime.now().timestamp() > user.expat:
+        return redirect(f"/refresh-token?id={user.id}")
+
     resp = Response(
         make_svg(
             request.args.get("spin"),
             request.args.get("scan"),
             request.args.get("theme"),
             request.args.get("rainbow"),
+            request.args.get("id"),
         ),
         mimetype="image/svg+xml",
     )
     resp.headers["Cache-Control"] = "s-maxage=1"
     return resp
+
+
+@app.route("/login")
+def login():
+    scope = "user-read-currently-playing user-read-recently-played"
+
+    params = {
+        "client_id": CLIENT_ID,
+        "response_type": "code",
+        "scope": scope,
+        "redirect_uri": REDIRECT_URI + "/callback",
+    }
+
+    return redirect(f"{AUTH_URL}?{urllib.parse.urlencode(params)}")
+
+
+@app.route("/callback")
+def callback():
+    if "error" in request.args:
+        return jsonify({"error": request.args["error"]})
+    elif "code" in request.args:
+        req_body = {
+            "code": request.args["code"],
+            "grant_type": "authorization_code",
+            "redirect_uri": REDIRECT_URI + "/callback",
+            "client_id": CLIENT_ID,
+            "client_secret": CLIENT_SECRET,
+        }
+
+        response = requests.post(TOKEN_URL, data=req_body).json()
+
+        try:
+            user = User(response)
+        except:
+            return redirect("/login")
+        userTable.append(user)
+
+        return redirect(f"/api?id={user.id}")
+
+
+@app.route("/refresh-token")
+def refreshToken():
+    user: User = userTable.find(request.args["id"])
+
+    req_body = {
+        "grant_type": "refresh_token",
+        "refresh_token": user.rfsTk,
+        "client_id": CLIENT_ID,
+        "client_secret": CLIENT_SECRET,
+    }
+
+    user.fromInfo(requests.post(TOKEN_URL, data=req_body).json())
+    save("spotifyuser", userTable)
+
+    return redirect(f"api?id={user.id}")
 
 
 if __name__ == "__main__":
