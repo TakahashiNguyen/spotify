@@ -30,6 +30,7 @@ CLIENT_ID = getenv("CLIENT_ID")
 CLIENT_SECRET = getenv("CLIENT_SECRET")
 HOST_URL = getenv("HOST_URL")
 PORT = getenv("PORT")
+WHITELIST_URLS = ["takahashinguyen.github.io", "localhost:5173"]
 
 
 class User:
@@ -139,7 +140,7 @@ def spotify_request(endpoint, id):
     return {} if r.status_code == 204 else r.json()
 
 
-def generate_bars(
+def     generate_bars(
     bar_count,
     rainbow,
     spectrum=["#FF99C8", "#FCF6BD", "#D0F4DE", "#A9DEF9", "#E4C1F9"],
@@ -152,8 +153,8 @@ def generate_bars(
 
     for i in range(bar_count):
         css += f""".bar:nth-child({i + 1}) {{
-                animation-duration: {randint(500, 750)}ms;
-                background: {spectrum[(i,randint(0,99))%len(spectrum)]};
+                animation-duration: {randint(400, 800)}ms;
+                background: {spectrum[(i+randint(0,99))%len(spectrum)]};
             }}"""
     return f"{bars}{css}</style>"
 
@@ -181,9 +182,7 @@ def decode_base64_image(base64_string):
 def extract_prominent_colors_pillow(base64_string, num_colors=5):
     """Extracts prominent colors using Pillow's quantize method."""
     img = decode_base64_image(base64_string)
-    resized_img = img.resize((200, 200))  # Adjust dimensions as needed
-    palette_img = resized_img.quantize(num_colors)
-    colors = palette_img.getpalette()
+    colors = img.quantize(num_colors).getpalette()
     return [
         f"#{colors[i]:02x}{colors[i+1]:02x}{colors[i+2]:02x}"
         for i in range(0, num_colors * 3, 3)
@@ -222,7 +221,7 @@ def make_svg(spin, scan, theme, rainbow, id):
                 generate_bars(bar_count, True)
                 if not artists
                 else generate_bars(
-                    bar_count, rainbow, extract_prominent_colors_pillow(image, 8)
+                    bar_count, rainbow, extract_prominent_colors_pillow(image, 50)
                 )
             ),
             "artist": artists,  # .replace("&", "&amp;"),
@@ -236,7 +235,7 @@ def make_svg(spin, scan, theme, rainbow, id):
 
 
 app = Flask(__name__)
-CORS(app, origins=["takahashinguyen.github.io", "localhost:5173"])
+CORS(app, origins=WHITELIST_URLS)
 app.secret_key = CLIENT_ID + CLIENT_SECRET
 
 
@@ -273,7 +272,6 @@ def catch_all(path):
         ),
         mimetype="image/svg+xml",
     )
-    resp.headers["Cache-Control"] = "s-maxage=1"
     return resp
 
 

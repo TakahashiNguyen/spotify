@@ -15,7 +15,7 @@
             font: inherit;
             vertical-align: baseline;
         }
-        main {
+        .main {
             padding: 20px;
             border-radius: 5px;
             display: flex;
@@ -30,7 +30,7 @@
                 filter: invert(100%);
             {% endif %}
         }
-        aside {
+        .aside {
             width: 615px;
             display: flex;
             position: relative;
@@ -48,7 +48,7 @@
             border-radius: 10px;
             {% endif %}
         }
-        section {
+        .section {
             padding-left: 20px;
             width: 100%;
             display: flex;
@@ -79,9 +79,6 @@
             display: block;
             overflow: hidden;
             max-width: 400px;
-            {% if not scan_code %}
-                margin-left: 10px;
-            {% endif %}
             {% if theme == 'dark' %}
                 color: aliceblue;
             {% else %}
@@ -129,15 +126,15 @@
         }
         @keyframes resize {
             0% {
-                transform: scaleY(0);
-                opacity: .05;
+                transform: scaleY(0.25);
+                opacity: .75;
             } 100% {
                 transform: scaleY(1);
                 opacity: .95;
             }
         }
       </style>
-      <main>
+      <div class="main">
         {% if scan_code %}
         <img
           class="scan-code"
@@ -145,13 +142,13 @@
           alt="Scan Code"
         />
         {% endif %}
-        <aside>
+        <main class="aside">
           <img
             class="cover"
             src="data:image/png;base64, {{image}}"
             alt="Cover Image"
           />
-          <section>
+          <div class="section">
             <div class="info">
               <div class="top">
                 <h1>{{song}}</h1>
@@ -159,9 +156,9 @@
               <p>{{artist}}</p>
             </div>
             <div class="bar-container">{{bars|safe}}</div>
-          </section>
-        </aside>
-      </main>
+          </div>
+        </main>
+      </div>
     </div>
   </foreignObject>
 </svg>
