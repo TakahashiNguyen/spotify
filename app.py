@@ -2,7 +2,15 @@ from datetime import datetime
 import sqlite3
 import requests
 from base64 import b64encode
-from flask import Flask, Response, jsonify, render_template, request, redirect
+from flask import (
+    Flask,
+    Response,
+    jsonify,
+    render_template,
+    request,
+    redirect,
+    session,
+)
 from random import randint
 from os import getenv
 from dotenv import find_dotenv, load_dotenv
@@ -32,11 +40,6 @@ class User:
         self.acsTk = info["access_token"]
         self.rfsTk = info["refresh_token"]
         self.expat = datetime.now().timestamp() + float(info["expires_in"])
-
-        self.id = requests.get(
-            f"https://api.spotify.com/v1/me",
-            headers={"Authorization": f"Bearer {self.acsTk}"},
-        ).json()["id"]
 
 
 def get_db_connection():
@@ -104,8 +107,6 @@ with open("base64/placeholder_scan_code.txt") as f:
     B64_PLACEHOLDER_SCAN_CODE = f.read()
 with open("base64/placeholder_image.txt") as f:
     B64_PLACEHOLDER_IMAGE = f.read()
-with open("base64/spotify_logo.txt") as f:
-    B64_SPOTIFY_LOGO = f.read()
 
 
 def get_token(id):
@@ -190,12 +191,11 @@ def make_svg(spin, scan, theme, rainbow, id):
     data = spotify_request("me/player/currently-playing", id)
     if data:
         item = data["item"]
+        artists = " & ".join([artist["name"] for artist in item["artists"]])
     else:
-        item = spotify_request("me/player/recently-played?limit=1", id)["items"][0][
-            "track"
-        ]
+        item = {"name": "User offline", "album": {"images": []}}
+        artists = ""
 
-    artists = " & ".join([artist["name"] for artist in item["artists"]])
     # for artist in item["artists"]:
     #     artists_list = #f'{artist["name"]} & '
 
@@ -205,29 +205,30 @@ def make_svg(spin, scan, theme, rainbow, id):
         image = load_image_base64(item["album"]["images"][1]["url"])
 
     if scan and scan != "false" and scan != "0":
-        bar_count = 10
+        bar_count = 15
         scan_code = get_scan_code(item["uri"])
     else:
-        bar_count = 12
+        bar_count = 17
         scan_code = None
 
     return render_template(
         "index.html",
         **{
-            "bars": generate_bars(bar_count, rainbow),
+            "bars": generate_bars(bar_count, rainbow or not artists),
             "artist": artists,  # .replace("&", "&amp;"),
             "song": item["name"],  # .replace("&", "&amp;"),
             "image": image,
             "scan_code": scan_code if scan_code != "" else B64_PLACEHOLDER_SCAN_CODE,
             "theme": theme,
             "spin": spin,
-            "logo": B64_SPOTIFY_LOGO,
         },
     )
 
 
 app = Flask(__name__)
-CORS(app, origins=['takahashinguyen.github.io', 'localhost:5173'])
+CORS(app, origins=["takahashinguyen.github.io", "localhost:5173"])
+app.secret_key = CLIENT_ID + CLIENT_SECRET
+
 
 @app.route("/", defaults={"path": ""})
 @app.route("/api", defaults={"path": ""})
@@ -236,18 +237,28 @@ def catch_all(path):
     if not "id" in request.args:
         return redirect("/login")
 
+    if not "prep" in request.args:
+        session["spin"] = request.args.get("spin")
+        session["scan"] = request.args.get("scan")
+        session["theme"] = request.args.get("theme")
+        session["rainbow"] = request.args.get("rainbow")
+
     user: User = find(request.args.get("id"))
     if not user:
         return redirect("/login")
-    elif datetime.now().timestamp() > user.expat:
+    if datetime.now().timestamp() > user.expat:
         return redirect(f"/refresh-token?id={user.id}")
 
     resp = Response(
         make_svg(
-            request.args.get("spin"),
-            request.args.get("scan"),
-            request.args.get("theme"),
-            request.args.get("rainbow"),
+            session["spin"] if "prep" in request.args else request.args.get("spin"),
+            session["scan"] if "prep" in request.args else request.args.get("scan"),
+            session["theme"] if "prep" in request.args else request.args.get("theme"),
+            (
+                session["rainbow"]
+                if "prep" in request.args
+                else request.args.get("rainbow")
+            ),
             request.args.get("id"),
         ),
         mimetype="image/svg+xml",
@@ -288,18 +299,18 @@ def callback():
         try:
             user = User(response)
         except:
-            pass
-            #return redirect("https://takahashinguyen.github.io/")
+            return redirect("https://takahashinguyen.github.io/")
 
+        user.id = requests.get(
+            f"https://api.spotify.com/v1/me",
+            headers={"Authorization": f"Bearer {user.acsTk}"},
+        ).json()["id"]
         append(user)
 
-        return redirect(f"/api?id={user.id}")
+        return redirect(f"/api?id={user.id}&prep=true")
 
 
-@app.route("/refresh-token")
-def refreshToken():
-    user: User = find(request.args["id"])
-
+def refreshUser(user: User):
     req_body = {
         "grant_type": "refresh_token",
         "refresh_token": user.rfsTk,
@@ -310,7 +321,14 @@ def refreshToken():
     user.fromInfo(requests.post(TOKEN_URL, data=req_body).json())
     update(user.id, user.acsTk, user.rfsTk, user.expat)
 
-    return redirect(f"api?id={user.id}")
+
+@app.route("/refresh-token")
+def refreshToken():
+    user: User = find(request.args["id"])
+
+    refreshUser(user)
+
+    return redirect(f"/api?id={user.id}&prep=true")
 
 
 if __name__ == "__main__":

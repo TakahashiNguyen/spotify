@@ -1,5 +1,5 @@
-<svg width="495" height="160" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
-    <foreignObject width="495" height="160">
+<svg width="625" height="160" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <foreignObject width="625" height="160">
         <div xmlns="http://www.w3.org/1999/xhtml" class="container">
             <style>
                 /* CSS Reset */
@@ -28,11 +28,11 @@
                     {% endif %}
                 }
                 aside {
-                    width: 485px;
+                    width: 615px;
                     display: flex;
                     position: relative;
                     {% if scan_code %}
-                        left: -70px;
+                        left: -80px;
                     {% endif %}
                 }
                 .cover {
@@ -76,7 +76,7 @@
                     text-overflow: ellipsis;
                     display: block;
                     overflow: hidden;
-                    max-width: 260px;
+                    max-width: 400px;
                     {% if not scan_code %}
                         margin-left: 10px;
                     {% endif %}
@@ -110,15 +110,11 @@
                     animation: rainbow 0ms -800ms linear infinite;
                 }
                 .bar {
-                    border-radius: 3px 3px 0 0;
+                    border-radius: 3px 3px 3px 3px;
                     height: 30px;
                     transform-origin: bottom;
                     animation: resize 0ms -800ms ease-in-out infinite alternate;
-                    {% if scan_code %}
-                        width: 21px;
-                    {% else %}
-                        width: 20px;
-                    {% endif %}
+                    width: 20px;
                 }
                 .bar:not(:first-child) {
                     margin-left: 6px;
@@ -148,9 +144,6 @@
                     <section>
                         <div class="info">
                             <div class="top">
-                                {% if not scan_code %}
-                                    <img class="logo" src="data:image/png;base64, {{logo}}" alt="Spotify Logo" />
-                                {% endif %}
                                 <h1>{{song}}</h1>
                             </div>
                             <p>{{artist}}</p>
