@@ -8,3 +8,4 @@ env
 config.py
 cache.sqlite3
 spotify.log
+ngrok.log

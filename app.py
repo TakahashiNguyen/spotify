@@ -7,6 +7,8 @@ from random import randint
 from os import getenv
 from dotenv import find_dotenv, load_dotenv
 import urllib.parse
+import ngrok
+from flask_cors import CORS
 
 load_dotenv(find_dotenv())
 
@@ -225,7 +227,7 @@ def make_svg(spin, scan, theme, rainbow, id):
 
 
 app = Flask(__name__)
-
+CORS(app, origins=['takahashinguyen.github.io', 'localhost:5173'])
 
 @app.route("/", defaults={"path": ""})
 @app.route("/api", defaults={"path": ""})
@@ -286,7 +288,8 @@ def callback():
         try:
             user = User(response)
         except:
-            return redirect("https://takahashinguyen.github.io/")
+            pass
+            #return redirect("https://takahashinguyen.github.io/")
 
         append(user)
 
@@ -311,4 +314,11 @@ def refreshToken():
 
 
 if __name__ == "__main__":
+    listener = ngrok.forward(
+        addr="192.168.1.62:5000",
+        authtoken_from_env=True,
+        domain="moving-thrush-physically.ngrok-free.app",
+    )
+
+    print(f"Ingress established at {listener.url()}")
     app.run(host=HOST_URL, port=PORT)
