@@ -47,11 +47,6 @@
             {% else %}
             border-radius: 10px;
             {% endif %}
-            {% if theme == 'dark' %}
-                box-shadow: 0 0 10px 5px #1b2027;
-            {% else %}
-                box-shadow: 0 0 10px 5px #f1f3f5;
-            {% endif %}
         }
         section {
             padding-left: 20px;
@@ -73,7 +68,11 @@
             align-items: center;
         }
         h1 {
+            {% if not artist %}
+            font-size: 40px;
+            {% else %}
             font-size: 20px;
+            {% endif %}
             font-weight: 600;
             white-space: nowrap;
             text-overflow: ellipsis;

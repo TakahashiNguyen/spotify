@@ -1,5 +1,8 @@
+import base64
 from datetime import datetime
+from io import BytesIO
 import sqlite3
+from PIL import Image
 import requests
 from base64 import b64encode
 from flask import (
@@ -136,39 +139,21 @@ def spotify_request(endpoint, id):
     return {} if r.status_code == 204 else r.json()
 
 
-def generate_bars(bar_count, rainbow):
+def generate_bars(
+    bar_count,
+    rainbow,
+    spectrum=["#FF99C8", "#FCF6BD", "#D0F4DE", "#A9DEF9", "#E4C1F9"],
+):
     """Build the HTML/CSS snippets for the EQ bars to be injected"""
     bars = "".join(["<div class='bar'></div>" for _ in range(bar_count)])
     css = "<style>"
     if rainbow and rainbow != "false" and rainbow != "0":
         css += ".bar-container { animation-duration: 2s; }"
-    spectrum = [
-        "#ff0000",
-        "#ff4000",
-        "#ff8000",
-        "#ffbf00",
-        "#ffff00",
-        "#bfff00",
-        "#80ff00",
-        "#40ff00",
-        "#00ff00",
-        "#00ff40",
-        "#00ff80",
-        "#00ffbf",
-        "#00ffff",
-        "#00bfff",
-        "#0080ff",
-        "#0040ff",
-        "#0000ff",
-        "#4000ff",
-        "#8000ff",
-        "#bf00ff",
-        "#ff00ff",
-    ]
+
     for i in range(bar_count):
         css += f""".bar:nth-child({i + 1}) {{
                 animation-duration: {randint(500, 750)}ms;
-                background: {spectrum[i] if rainbow and rainbow != 'false' and rainbow != '0' else '#24D255'};
+                background: {spectrum[(i,randint(0,99))%len(spectrum)]};
             }}"""
     return f"{bars}{css}</style>"
 
@@ -184,6 +169,25 @@ def get_scan_code(spotify_uri):
     return load_image_base64(
         f"https://scannables.scdn.co/uri/plain/png/000000/white/640/{spotify_uri}"
     )
+
+
+def decode_base64_image(base64_string):
+    """Decodes a base64 encoded string into a PIL Image object."""
+    image_data = base64.b64decode(base64_string)
+    image_file = BytesIO(image_data)
+    return Image.open(image_file)
+
+
+def extract_prominent_colors_pillow(base64_string, num_colors=5):
+    """Extracts prominent colors using Pillow's quantize method."""
+    img = decode_base64_image(base64_string)
+    resized_img = img.resize((200, 200))  # Adjust dimensions as needed
+    palette_img = resized_img.quantize(num_colors)
+    colors = palette_img.getpalette()
+    return [
+        f"#{colors[i]:02x}{colors[i+1]:02x}{colors[i+2]:02x}"
+        for i in range(0, num_colors * 3, 3)
+    ]
 
 
 def make_svg(spin, scan, theme, rainbow, id):
@@ -204,7 +208,7 @@ def make_svg(spin, scan, theme, rainbow, id):
     else:
         image = load_image_base64(item["album"]["images"][1]["url"])
 
-    if scan and scan != "false" and scan != "0":
+    if scan and scan != "false" and scan != "0" and artists:
         bar_count = 15
         scan_code = get_scan_code(item["uri"])
     else:
@@ -214,7 +218,13 @@ def make_svg(spin, scan, theme, rainbow, id):
     return render_template(
         "index.html",
         **{
-            "bars": generate_bars(bar_count, rainbow or not artists),
+            "bars": (
+                generate_bars(bar_count, True)
+                if not artists
+                else generate_bars(
+                    bar_count, rainbow, extract_prominent_colors_pillow(image, 8)
+                )
+            ),
             "artist": artists,  # .replace("&", "&amp;"),
             "song": item["name"],  # .replace("&", "&amp;"),
             "image": image,
