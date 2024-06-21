@@ -1,12 +1,12 @@
 from datetime import datetime
+import sqlite3
 import requests
 from base64 import b64encode
-from flask import Flask, Response, jsonify, render_template, request, redirect, session
+from flask import Flask, Response, jsonify, render_template, request, redirect
 from random import randint
 from os import getenv
 from dotenv import find_dotenv, load_dotenv
 import urllib.parse
-from sqlitedict import SqliteDict
 
 load_dotenv(find_dotenv())
 
@@ -15,7 +15,8 @@ TOKEN_URL = "https://accounts.spotify.com/api/token"
 API_BASE_URL = "https://api.spotify.com/v1/"
 CLIENT_ID = getenv("CLIENT_ID")
 CLIENT_SECRET = getenv("CLIENT_SECRET")
-REDIRECT_URI = getenv("REDIRECT_URI")
+HOST_URL = getenv("HOST_URL")
+PORT = getenv("PORT")
 
 
 class User:
@@ -28,7 +29,7 @@ class User:
 
         self.acsTk = info["access_token"]
         self.rfsTk = info["refresh_token"]
-        self.expat = datetime.now().timestamp() + info["expires_in"]
+        self.expat = datetime.now().timestamp() + float(info["expires_in"])
 
         self.id = requests.get(
             f"https://api.spotify.com/v1/me",
@@ -36,46 +37,65 @@ class User:
         ).json()["id"]
 
 
-class UserTable:
-    def __init__(self) -> None:
-        self.users = []
-
-    def append(self, input: User):
-        try:
-            self.users.append(input)
-        except:
-            pass
-
-    def find(self, id) -> User | int:
-        for e in self.users:
-            if e.id == id:
-                return e
-        return -1
+def get_db_connection():
+    conn = sqlite3.connect("cache.sqlite3")
+    conn.row_factory = sqlite3.Row
+    return conn
 
 
-def save(key, value, cache_file="cache.sqlite3"):
-    try:
-        with SqliteDict(cache_file) as mydict:
-            mydict[key] = value  # Using dict[key] to store
-            mydict.commit()  # Need to commit() to actually flush the data
-    except Exception as ex:
-        print("Error during storing data (Possibly unsupported):", ex)
+conn = get_db_connection()
+conn.execute(
+    """
+        CREATE TABLE IF NOT EXISTS users (
+            id TEXT,
+            acsTk TEXT,
+            rfsTk TEXT,
+            expat TEXT
+        )
+    """
+)
+conn.commit()
+conn.close()
 
 
-def load(key, cache_file="cache.sqlite3"):
-    try:
-        with SqliteDict(cache_file) as mydict:
-            value = mydict[
-                key
-            ]  # No need to use commit(), since we are only loading data!
-        return value
-    except Exception as ex:
-        print("Error during loading data:", ex)
+def append(input: User):
+    user = find(input.id)
+    if user:
+        update(input.id, input.acsTk, input.rfsTk, input.expat)
+    else:
+        insert_query = (
+            """INSERT INTO users (id, acsTk, rfsTk, expat) VALUES (?, ?, ?, ?)"""
+        )
+        conn = get_db_connection()
+        conn.execute(insert_query, (input.id, input.acsTk, input.rfsTk, input.expat))
+        conn.commit()
+        conn.close()
 
 
-userTable: UserTable = load("spotifyuser")
-if not userTable:
-    userTable = UserTable()
+def find(id):
+    select_query = """SELECT * FROM users WHERE id = ?"""
+    user = get_db_connection().execute(select_query, (id,)).fetchone()
+
+    if user:
+        return User(
+            {
+                "id": user[0],
+                "access_token": user[1],
+                "refresh_token": user[2],
+                "expires_in": user[3],
+            }
+        )
+    else:
+        return None
+
+
+def update(id, acsTk, rfsTk, expat):
+    update_query = """UPDATE users SET acsTk = ?, rfsTk = ?, expat = ? WHERE id = ?"""
+    conn = get_db_connection()
+    conn.execute(update_query, (acsTk, rfsTk, expat, id))
+    conn.commit()
+    conn.close()
+
 
 # Define base-64 encoded images
 with open("base64/placeholder_scan_code.txt") as f:
@@ -88,7 +108,7 @@ with open("base64/spotify_logo.txt") as f:
 
 def get_token(id):
     """Get a new access token"""
-    user: User = userTable.find(id)
+    user: User = find(id)
     r = requests.post(
         TOKEN_URL,
         data={
@@ -205,18 +225,17 @@ def make_svg(spin, scan, theme, rainbow, id):
 
 
 app = Flask(__name__)
-app.secret_key = "dsapofhipahufoeqigufpqbifoboh3974y98723y"
 
 
 @app.route("/", defaults={"path": ""})
 @app.route("/api", defaults={"path": ""})
 @app.route("/<path:path>")
 def catch_all(path):
-    if request.args.get("id") == "":
+    if not "id" in request.args:
         return redirect("/login")
 
-    user: User = userTable.find(request.args.get("id"))
-    if user == -1:
+    user: User = find(request.args.get("id"))
+    if not user:
         return redirect("/login")
     elif datetime.now().timestamp() > user.expat:
         return redirect(f"/refresh-token?id={user.id}")
@@ -237,13 +256,13 @@ def catch_all(path):
 
 @app.route("/login")
 def login():
-    scope = "user-read-currently-playing user-read-recently-played"
+    scope = "user-read-currently-playing user-read-recently-played user-read-private user-read-email"
 
     params = {
         "client_id": CLIENT_ID,
         "response_type": "code",
         "scope": scope,
-        "redirect_uri": REDIRECT_URI + "/callback",
+        "redirect_uri": f"{request.url_root}callback",
     }
 
     return redirect(f"{AUTH_URL}?{urllib.parse.urlencode(params)}")
@@ -257,7 +276,7 @@ def callback():
         req_body = {
             "code": request.args["code"],
             "grant_type": "authorization_code",
-            "redirect_uri": REDIRECT_URI + "/callback",
+            "redirect_uri": f"{request.url_root}callback",
             "client_id": CLIENT_ID,
             "client_secret": CLIENT_SECRET,
         }
@@ -267,15 +286,16 @@ def callback():
         try:
             user = User(response)
         except:
-            return redirect("/login")
-        userTable.append(user)
+            return redirect("https://takahashinguyen.github.io/")
+
+        append(user)
 
         return redirect(f"/api?id={user.id}")
 
 
 @app.route("/refresh-token")
 def refreshToken():
-    user: User = userTable.find(request.args["id"])
+    user: User = find(request.args["id"])
 
     req_body = {
         "grant_type": "refresh_token",
@@ -285,10 +305,10 @@ def refreshToken():
     }
 
     user.fromInfo(requests.post(TOKEN_URL, data=req_body).json())
-    save("spotifyuser", userTable)
+    update(user.id, user.acsTk, user.rfsTk, user.expat)
 
     return redirect(f"api?id={user.id}")
 
 
 if __name__ == "__main__":
-    app.run()
+    app.run(host=HOST_URL, port=PORT)
