@@ -30,7 +30,7 @@ CLIENT_ID = getenv("CLIENT_ID")
 CLIENT_SECRET = getenv("CLIENT_SECRET")
 HOST_URL = getenv("HOST_URL")
 PORT = getenv("PORT")
-WHITELIST_URLS = ["takahashinguyen.github.io", "localhost:5173"]
+WHITELIST_URLS = ["https://takahashinguyen.github.io", "http://localhost:5173"]
 
 
 class User:
@@ -140,7 +140,7 @@ def spotify_request(endpoint, id):
     return {} if r.status_code == 204 else r.json()
 
 
-def     generate_bars(
+def generate_bars(
     bar_count,
     rainbow,
     spectrum=["#FF99C8", "#FCF6BD", "#D0F4DE", "#A9DEF9", "#E4C1F9"],
@@ -244,7 +244,7 @@ app.secret_key = CLIENT_ID + CLIENT_SECRET
 @app.route("/<path:path>")
 def catch_all(path):
     if not "id" in request.args:
-        return redirect("/login")
+        return Response()
 
     if not "prep" in request.args:
         session["spin"] = request.args.get("spin")
@@ -271,6 +271,11 @@ def catch_all(path):
             request.args.get("id"),
         ),
         mimetype="image/svg+xml",
+        headers={
+            "Access-Control-Allow-Origin": (
+                request.url_root if request.url_root in WHITELIST_URLS else ""
+            )
+        },
     )
     return resp
 
